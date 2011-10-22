@@ -1,0 +1,124 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+
+"""Run on a par2 file and it'l par2verify, then unrar the rars."""
+
+import subprocess
+import optparse
+import shutil
+import glob
+import sys
+import re
+import os
+
+PIPE = subprocess.PIPE
+STDOUT = subprocess.STDOUT
+
+def lineread(stdout):
+    line = stdout.readline()
+    while line:
+        yield line.strip().replace('\r', ' ')
+        line = stdout.readline()
+
+def flushwrite(string):
+    sys.stdout.write(string)
+    sys.stdout.flush()
+
+def cleanbase(base):
+    return re.subn('[\[\]\)\(]', '?',  base)[0]
+
+def run(cmd, loud=True):
+    kws = dict(bufsize=1, stdout=PIPE, stderr=STDOUT)
+    if loud:
+        kws['stderr'], kws['stdout'] = None, None
+    po = subprocess.Popen(cmd, **kws)
+    po.wait()
+    return po
+
+def par2repair(cmd):
+    po = subprocess.Popen(cmd, stdout=PIPE, stderr=STDOUT, bufsize=1)
+    numre = re.compile('^There are (\d+) recove.*')
+    scanre = re.compile('^Scanning:')
+    targetre = re.compile(r'Target: "([^"]+?)" -.*')
+    stage = 'numre'
+    needs_repair = False
+    numfiles = 0
+    scanfiles = 0
+    targetnum = 0
+    targetfiles = []
+    for line in lineread(po.stdout):
+        if stage == 'numre':
+            print 'Scanning PAR2 files...\r',
+            m = numre.match(line)
+            if m:
+                numfiles = int(m.groups()[0])
+                stage = 'scan'
+                continue
+        elif stage == 'scan':
+            scanstr = 'Scanning data files: %d of %d' % (scanfiles, numfiles)
+            if needs_repair:
+                flushwrite(scanstr + ' (damaged!)' + ' '*5 + '\r')
+            else:
+                flushwrite(scanstr + ' '*10 + '\r')
+            m = scanre.search(line)
+            t = targetre.search(line)
+            if m:
+                scanfiles += 1
+                if 'damaged' in line:
+                    needs_repair = True
+            if t:
+                targetnum += 1
+                targetfiles.append(t.groups()[0])
+    po.wait()
+    return po, targetfiles
+
+def repair_and_move(parfile, location, vols):
+    res, files = par2repair(['par2repair', parfile])
+    if res.returncode:
+        print "Files appear to be corrupted beyond repair."
+        sys.exit(-1)
+    for f in files:
+        shutil.move(f, location)
+    for path in [parfile] + vols:
+        os.unlink(path)
+
+def pyrate(parfilepath, opts, skippar=False):
+    base = parfilepath.replace('.par2', '').replace('.PAR2', '')
+    vols = glob.glob(cleanbase(base) + '*vol*')
+    rars = sorted(glob.glob(cleanbase(base) + '*.r??'))
+    if base.endswith('.rar'):
+        rars = sorted(glob.glob(cleanbase(base[:-4]) + '*.r??'))
+    if not rars:
+        rars = sorted(glob.glob(cleanbase(base) + '*.???'))
+    if opts.move:
+        return repair_and_move(parfilepath, opts.move, vols)
+    if not skippar:
+        res = run(('par2repair', parfilepath))
+        if res.returncode:
+            print "Files appear to be corrupted beyond repair."
+            sys.exit(-1)
+    israr = lambda x: str.endswith(x, 'rar')
+    try:
+        realrar = filter(israr, rars)[0]
+    except IndexError:
+        realrar = [r for r in rars if r.endswith('.001')][0]
+    res = run(('unrar', 'x', realrar))
+    if res.returncode:
+        print "Files unrarred incorrectly?"
+        sys.exit(-1)
+    for path in [parfilepath] + vols + rars + glob.glob(base + '*.1'):
+        os.unlink(path)
+
+def main():
+    opts, args = parse_args()
+    for arg in args:
+        pyrate(arg, opts)
+
+def parse_args():
+    parser = optparse.OptionParser(version='1.0', usage='%prog')
+    parser.add_option('-m', '--move', help='Move all target files into a new directory.')
+    return parser.parse_args()
+
+if __name__ == '__main__':
+    try: main()
+    except KeyboardInterrupt: pass

@@ -1,0 +1,59 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+
+"""par2ls script"""
+
+import sys
+import os
+import optparse
+from par2ools import par2
+from glob import glob
+
+USAGE="%prog [opts] <par2file ...>"
+VERSION=(0,1)
+
+def list_file(filename):
+    f = par2.Par2File(filename)
+    return '\n'.join(f.filenames())
+
+def baseglob(pat, base):
+    return [f for f in glob(pat) if f.startswith(base)]
+
+def related_par2s(filename):
+    names = [filename]
+    name_base = filename.rsplit('.', 1)[0]
+    alts = baseglob("*.vol*.par2", name_base)
+    alts += baseglob("*.vol*.PAR2", name_base)
+    alts += baseglob("*.VOL*.PAR2", name_base)
+    alts += baseglob("*.VOL*.par2", name_base)
+    return '\n'.join(sorted(names + alts))
+
+def list_files(opts, par2s):
+    if len(par2s) == 1:
+        print list_file(par2s[0])
+        if opts.par2:
+            print related_par2s(par2s[0])
+        return
+    for i,filename in enumerate(par2s):
+        print "%s/:" % filename
+        print list_file(par2s[0])
+        if i+1 < len(par2s):
+            print ""
+
+def main():
+    opts, args = parse_args()
+    list_files(opts, args)
+
+def parse_args():
+    parser = optparse.OptionParser(usage=USAGE, version='.'.join(map(str,VERSION)))
+    parser.add_option('-p', '--par2', action='store_true', help='include related par2 archives')
+    opts, args = parser.parse_args()
+    return opts, args
+
+
+if __name__ == '__main__':
+    try:
+        sys.exit(main() or 0)
+    except KeyboardInterrupt:
+        sys.exit(-1)
+
