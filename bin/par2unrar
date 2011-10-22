@@ -82,7 +82,7 @@ def repair_and_move(parfile, location, vols):
     for path in [parfile] + vols:
         os.unlink(path)
 
-def pyrate(parfilepath, opts, skippar=False):
+def par2unrar(parfilepath, opts, skippar=False):
     base = parfilepath.replace('.par2', '').replace('.PAR2', '')
     vols = glob.glob(cleanbase(base) + '*vol*')
     rars = sorted(glob.glob(cleanbase(base) + '*.r??'))
@@ -112,7 +112,7 @@ def pyrate(parfilepath, opts, skippar=False):
 def main():
     opts, args = parse_args()
     for arg in args:
-        pyrate(arg, opts)
+        par2unrar(arg, opts)
 
 def parse_args():
     parser = optparse.OptionParser(version='1.0', usage='%prog')

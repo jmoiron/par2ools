@@ -3,10 +3,14 @@
 
 """A native python implementation of the par2 file format.
 
-This is only intended to be able to read packets in par2, not execute
-repair, verify, or create new par2 files."""
+This is only intended to be able to read packets in par2, not repair,
+verify, or create new par2 files."""
 
+import os
+import glob
 import struct
+
+from par2ools import fileutil
 
 PACKET_HEADER = ("<"
     "8s"  # MAGIC: PAR2\x00PKT
@@ -62,10 +66,16 @@ class FileDescriptionPacket(object):
 
 class Par2File(object):
     def __init__(self, obj_or_path):
+        """A convenient object that reads and makes sense of Par2 blocks."""
+        self.path = None
         if isinstance(obj_or_path, basestring):
-            self.contents = open(obj_or_path).read()
+            with open(obj_or_path) as f:
+                self.contents = f.read()
+                self.path = obj_or_path
         else:
             self.contents = obj_or_path.read()
+            if getattr(obj_or_path, 'name', None):
+                self.path = f.name
         self.packets = self.read_packets()
 
     def read_packets(self):
@@ -82,7 +92,18 @@ class Par2File(object):
         return packets
 
     def filenames(self):
+        """Returns the filenames that this par2 file repairs."""
         return [p.name for p in self.packets if isinstance(p, FileDescriptionPacket)]
 
-
+    def related_pars(self):
+        """Returns a list of related par2 files (ones par2 will try to read
+        from to find file recovery blocks).  If this par2 file was a file-like
+        object (like a StringIO) without an associated path, return [].
+        Otherwise, the name of this file + associated files are returned."""
+        if not self.path:
+            return []
+        names = [self.path]
+        basename = self.path.replace('.par2', '').replace('.PAR2', '')
+        names += fileutil.cibaseglob('*.vol*.PAR2', basename)
+        return names
 

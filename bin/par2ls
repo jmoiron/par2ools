@@ -6,37 +6,28 @@
 import sys
 import os
 import optparse
-from par2ools import par2
+from par2ools import par2, fileutil
 from glob import glob
 
 USAGE="%prog [opts] <par2file ...>"
 VERSION=(0,1)
 
-def list_file(filename):
-    f = par2.Par2File(filename)
-    return '\n'.join(f.filenames())
-
-def baseglob(pat, base):
-    return [f for f in glob(pat) if f.startswith(base)]
-
-def related_par2s(filename):
-    names = [filename]
-    name_base = filename.rsplit('.', 1)[0]
-    alts = baseglob("*.vol*.par2", name_base)
-    alts += baseglob("*.vol*.PAR2", name_base)
-    alts += baseglob("*.VOL*.PAR2", name_base)
-    alts += baseglob("*.VOL*.par2", name_base)
-    return '\n'.join(sorted(names + alts))
+def format_filenames(filenames):
+    return '\n'.join(fileutil.dircolorize(x) for x in filenames)
 
 def list_files(opts, par2s):
     if len(par2s) == 1:
-        print list_file(par2s[0])
+        pf = par2.Par2File(par2s[0])
+        print format_filenames(pf.filenames())
         if opts.par2:
-            print related_par2s(par2s[0])
+            print format_filenames(pf.related_pars())
         return
     for i,filename in enumerate(par2s):
+        pf = par2.Par2File(filename)
         print "%s/:" % filename
-        print list_file(par2s[0])
+        print format_filenames(pf.filenames())
+        if opts.par2:
+            print format_filenames(pf.related_pars())
         if i+1 < len(par2s):
             print ""
 
