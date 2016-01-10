@@ -6,9 +6,8 @@
 This is only intended to be able to read packets in par2, not repair,
 verify, or create new par2 files."""
 
-import os
-import glob
 import struct
+import hashlib
 
 from par2ools import fileutil
 
@@ -56,8 +55,14 @@ class Header(object):
         self.setid = parts[3]
         self.type = parts[4]
 
-    def verify(self):
-        return self.magic == 'PAR2\x00PKT'
+    def verify(self, par2file, offset=0):
+        if self.magic != 'PAR2\x00PKT':
+            return False
+        if self.length + offset > len(par2file):
+            return False
+        validate_start = 8 + 8 + 16 # Skip the first 3 fields
+        raw = par2file[offset+validate_start:offset+self.length]
+        return hashlib.md5(raw).digest() == self.hash
 
 class UnknownPar2Packet(object):
     fmt = PACKET_HEADER
@@ -143,6 +148,10 @@ class Par2File(object):
         packets = []
         while offset < filelen:
             header = Header(self.contents, offset)
+            if not header.verify(self.contents, offset):
+                # If the packet was invalid, we cant trust the length
+                # So we need to abort with what we had.
+                break
             if header.type == MainPacket.header_type:
                 self.main_packet = MainPacket(self.contents, offset)
                 packets.append(self.main_packet)
