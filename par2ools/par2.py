@@ -19,14 +19,14 @@ PACKET_HEADER = ("<"
     "16s" # packet type
 )
 
-FILE_DESCRIPTION_PACKET = ("<64s" # PACKET_HEADER
+FILE_DESCRIPTION_PACKET = ("<"
     "16s" # fileid; file this packet belongs to
     "16s" # hashfull;  md5 hash of the whole file
     "16s" # hash16k;  md5 hash of the first 16k of the file
     "Q"   # length of the file
 )
 
-MAIN_PACKET = ("<64s" # PACKET_HEADER
+MAIN_PACKET = ("<"
     "Q" # slice_size; The size of the slices in bytes
     "I" # num_files; Number of files in the recovery set
 )
@@ -35,7 +35,7 @@ MAIN_PACKET_FILEID = ("<"
     "16s" # fileid;
 )
 
-FILE_CHECKSUM_PACKET = ("<64s" # PACKET_HEADER
+FILE_CHECKSUM_PACKET = ("<"
     "16s" # fileid; file this packet belongs to
 )
 
@@ -46,11 +46,12 @@ FILE_CHECKSUM_PACKET_SLICE = ("<"
 
 class Header(object):
     fmt = PACKET_HEADER
-    def __init__(self, par2file, offset=0):
-        self.raw = par2file[offset:offset+struct.calcsize(self.fmt)]
-        parts = struct.unpack(self.fmt, self.raw)
+    size = struct.calcsize(PACKET_HEADER) # Size of just the header
+
+    def __init__(self, raw):
+        parts = struct.unpack(self.fmt, raw)
         self.magic = parts[0]
-        self.length = parts[1]
+        self.length = parts[1] # Length of the full packet (including header)
         self.hash = parts[2]
         self.setid = parts[3]
         self.type = parts[4]
@@ -66,43 +67,41 @@ class Header(object):
 
 class UnknownPar2Packet(object):
     fmt = PACKET_HEADER
-    def __init__(self, par2file, offset=0):
-        self.raw = par2file[offset:offset+struct.calcsize(self.fmt)]
-        self.header = Header(self.raw)
+    def __init__(self, header, raw):
+        self.raw = raw
+        self.header = header
 
 class FileDescriptionPacket(object):
     header_type = 'PAR 2.0\x00FileDesc'
     fmt = FILE_DESCRIPTION_PACKET
 
-    def __init__(self, par2file, offset=0):
-        name_start = offset+struct.calcsize(self.fmt)
-        self.raw = par2file[offset:name_start]
-        parts = struct.unpack(self.fmt, self.raw)
-        self.header = Header(parts[0])
-        packet = par2file[offset:offset+self.header.length]
-        self.fileid = parts[1]
-        self.file_hashfull = parts[2]
-        self.file_hash16k = parts[3]
-        self.file_length = parts[4]
-        self.name = packet[struct.calcsize(self.fmt):].strip('\x00')
+    def __init__(self, header, raw):
+        self.header = header
+        name_start = struct.calcsize(self.fmt)
+        parts = struct.unpack(self.fmt, raw[:name_start])
+        self.fileid = parts[0]
+        self.file_hashfull = parts[1]
+        self.file_hash16k = parts[2]
+        self.file_length = parts[3]
+        self.name = raw[name_start:].strip('\x00')
 
 class MainPacket(object):
     fmt = MAIN_PACKET
     fmt_array = MAIN_PACKET_FILEID
     header_type = 'PAR 2.0\x00Main\x00\x00\x00\x00'
 
-    def __init__(self, par2file, offset=0):
+    def __init__(self, header, raw):
+        self.header = header
         array_start = struct.calcsize(self.fmt)
-        parts = struct.unpack(self.fmt, par2file[offset:offset+array_start])
-        self.header = Header(parts[0])
-        self.slice_size = parts[1]
-        self.num_files = parts[2]
+        parts = struct.unpack(self.fmt, raw[:array_start])
+        self.slice_size = parts[0]
+        self.num_files = parts[1]
         hash_size = struct.calcsize(self.fmt_array)
-        num_ids = (self.header.length - array_start) / hash_size
+        num_ids = (self.header.length - self.header.size - array_start) / hash_size
         self.file_ids = []
         for idx in range(num_ids):
-            start = offset + array_start + (hash_size * idx)
-            parts = struct.unpack(self.fmt_array, par2file[start:start+hash_size])
+            start = array_start + (hash_size * idx)
+            parts = struct.unpack(self.fmt_array, raw[start:start+hash_size])
             self.file_ids.append(parts[0])
         self.num_nonrecovery_files = self.num_files - num_ids
 
@@ -111,19 +110,19 @@ class InputFileSliceChecksumPacket(object):
     slice_fmt = FILE_CHECKSUM_PACKET_SLICE
     header_type = 'PAR 2.0\x00IFSC\x00\x00\x00\x00'
 
-    def __init__(self, par2file, offset=0):
-        header_size = struct.calcsize(self.fmt)
-        parts = struct.unpack(self.fmt, par2file[offset:offset+header_size])
-        self.header = Header(parts[0])
-        self.fileid = parts[1]
+    def __init__(self, header, raw):
+        self.header = header
+        body_size = struct.calcsize(self.fmt)
+        parts = struct.unpack(self.fmt, raw[:body_size])
+        self.fileid = parts[0]
         # Unpack slices
         slice_size = struct.calcsize(self.slice_fmt)
-        self.num_slices = (self.header.length - header_size) / slice_size
+        self.num_slices = (self.header.length - (body_size + header.size)) / slice_size
         self.slice_md5 = []
         self.slice_crc = []
         for idx in range(self.num_slices):
-            start = offset + header_size + (slice_size * idx)
-            parts = struct.unpack(self.slice_fmt, par2file[start:start+slice_size])
+            start = body_size + (slice_size * idx)
+            parts = struct.unpack(self.slice_fmt, raw[start:start+slice_size])
             self.slice_md5.append(parts[0])
             self.slice_crc.append(parts[1])
 
@@ -147,20 +146,22 @@ class Par2File(object):
         filelen = len(self.contents)
         packets = []
         while offset < filelen:
-            header = Header(self.contents, offset)
+            raw_header = self.contents[offset:offset+Header.size]
+            header = Header(raw_header)
             if not header.verify(self.contents, offset):
                 # If the packet was invalid, we cant trust the length
                 # So we need to abort with what we had.
                 break
+            raw_body = self.contents[offset+Header.size:offset+header.length]
             if header.type == MainPacket.header_type:
-                self.main_packet = MainPacket(self.contents, offset)
+                self.main_packet = MainPacket(header, raw_body)
                 packets.append(self.main_packet)
             elif header.type == FileDescriptionPacket.header_type:
-                packets.append(FileDescriptionPacket(self.contents, offset))
+                packets.append(FileDescriptionPacket(header, raw_body))
             elif header.type == InputFileSliceChecksumPacket.header_type:
-                packets.append(InputFileSliceChecksumPacket(self.contents, offset))
+                packets.append(InputFileSliceChecksumPacket(header, raw_body))
             else:
-                packets.append(UnknownPar2Packet(self.contents, offset))
+                packets.append(UnknownPar2Packet(header, raw_body))
             offset += header.length
         return packets
 
