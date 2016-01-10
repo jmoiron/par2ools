@@ -36,6 +36,15 @@ MAIN_PACKET_FILEID = ("<"
     "16s" # fileid;
 )
 
+FILE_CHECKSUM_PACKET = ("<64s" # PACKET_HEADER
+    "16s" # fileid; file this packet belongs to
+)
+
+FILE_CHECKSUM_PACKET_SLICE = ("<"
+    "16s" # hash; MD5 hash of the slice
+    "i" # checksum; CRC32 checksum of the slice
+)
+
 class Header(object):
     fmt = PACKET_HEADER
     def __init__(self, par2file, offset=0):
@@ -92,6 +101,27 @@ class MainPacket(object):
             self.file_ids.append(parts[0])
         self.num_nonrecovery_files = self.num_files - num_ids
 
+class InputFileSliceChecksumPacket(object):
+    fmt = FILE_CHECKSUM_PACKET
+    slice_fmt = FILE_CHECKSUM_PACKET_SLICE
+    header_type = 'PAR 2.0\x00IFSC\x00\x00\x00\x00'
+
+    def __init__(self, par2file, offset=0):
+        header_size = struct.calcsize(self.fmt)
+        parts = struct.unpack(self.fmt, par2file[offset:offset+header_size])
+        self.header = Header(parts[0])
+        self.fileid = parts[1]
+        # Unpack slices
+        slice_size = struct.calcsize(self.slice_fmt)
+        self.num_slices = (self.header.length - header_size) / slice_size
+        self.slice_md5 = []
+        self.slice_crc = []
+        for idx in range(self.num_slices):
+            start = offset + header_size + (slice_size * idx)
+            parts = struct.unpack(self.slice_fmt, par2file[start:start+slice_size])
+            self.slice_md5.append(parts[0])
+            self.slice_crc.append(parts[1])
+
 class Par2File(object):
     def __init__(self, obj_or_path):
         """A convenient object that reads and makes sense of Par2 blocks."""
@@ -118,6 +148,8 @@ class Par2File(object):
                 packets.append(self.main_packet)
             elif header.type == FileDescriptionPacket.header_type:
                 packets.append(FileDescriptionPacket(self.contents, offset))
+            elif header.type == InputFileSliceChecksumPacket.header_type:
+                packets.append(InputFileSliceChecksumPacket(self.contents, offset))
             else:
                 packets.append(UnknownPar2Packet(self.contents, offset))
             offset += header.length
