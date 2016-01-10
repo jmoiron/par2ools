@@ -21,10 +21,19 @@ PACKET_HEADER = ("<"
 )
 
 FILE_DESCRIPTION_PACKET = ("<64s" # PACKET_HEADER
-    "16s" # fileid, hash of [hash16k, length, name]
-    "16s" # hashfull;  hash of the whole file (which?)
-    "16s" # hash16k;  hash of the first 16k of the file (which?)
+    "16s" # fileid; file this packet belongs to
+    "16s" # hashfull;  md5 hash of the whole file
+    "16s" # hash16k;  md5 hash of the first 16k of the file
     "Q"   # length of the file
+)
+
+MAIN_PACKET = ("<64s" # PACKET_HEADER
+    "Q" # slice_size; The size of the slices in bytes
+    "I" # num_files; Number of files in the recovery set
+)
+
+MAIN_PACKET_FILEID = ("<"
+    "16s" # fileid;
 )
 
 class Header(object):
@@ -63,6 +72,25 @@ class FileDescriptionPacket(object):
         self.file_length = parts[4]
         self.name = packet[struct.calcsize(self.fmt):].strip('\x00')
 
+class MainPacket(object):
+    fmt = MAIN_PACKET
+    fmt_array = MAIN_PACKET_FILEID
+    header_type = 'PAR 2.0\x00Main\x00\x00\x00\x00'
+
+    def __init__(self, par2file, offset=0):
+        array_start = struct.calcsize(self.fmt)
+        parts = struct.unpack(self.fmt, par2file[offset:offset+array_start])
+        self.header = Header(parts[0])
+        self.slice_size = parts[1]
+        self.num_files = parts[2]
+        hash_size = struct.calcsize(self.fmt_array)
+        num_ids = (self.header.length - array_start) / hash_size
+        self.file_ids = []
+        for idx in range(num_ids):
+            start = offset + array_start + (hash_size * idx)
+            parts = struct.unpack(self.fmt_array, par2file[start:start+hash_size])
+            self.file_ids.append(parts[0])
+        self.num_nonrecovery_files = self.num_files - num_ids
 
 class Par2File(object):
     def __init__(self, obj_or_path):
@@ -76,6 +104,7 @@ class Par2File(object):
             self.contents = obj_or_path.read()
             if getattr(obj_or_path, 'name', None):
                 self.path = obj_or_path.name
+        self.main_packet = None
         self.packets = self.read_packets()
 
     def read_packets(self):
@@ -84,7 +113,10 @@ class Par2File(object):
         packets = []
         while offset < filelen:
             header = Header(self.contents, offset)
-            if header.type == FileDescriptionPacket.header_type:
+            if header.type == MainPacket.header_type:
+                self.main_packet = MainPacket(self.contents, offset)
+                packets.append(self.main_packet)
+            elif header.type == FileDescriptionPacket.header_type:
                 packets.append(FileDescriptionPacket(self.contents, offset))
             else:
                 packets.append(UnknownPar2Packet(self.contents, offset))
