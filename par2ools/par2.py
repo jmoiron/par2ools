@@ -75,7 +75,7 @@ class Par2File(object):
         else:
             self.contents = obj_or_path.read()
             if getattr(obj_or_path, 'name', None):
-                self.path = f.name
+                self.path = obj_or_path.name
         self.packets = self.read_packets()
 
     def read_packets(self):
