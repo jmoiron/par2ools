@@ -52,17 +52,19 @@ class Header(object):
         parts = struct.unpack(self.fmt, raw)
         self.magic = parts[0]
         self.length = parts[1] # Length of the full packet (including header)
+        self.body_length = self.length - self.size
         self.hash = parts[2]
         self.setid = parts[3]
         self.type = parts[4]
 
-    def verify(self, par2file, offset=0):
-        if self.magic != 'PAR2\x00PKT':
+    def verify(self):
+        return self.magic == 'PAR2\x00PKT'
+
+    def verify_packet(self, raw_packet):
+        if len(raw_packet) < self.length:
             return False
-        if self.length + offset > len(par2file):
-            return False
-        validate_start = 8 + 8 + 16 # Skip the first 3 fields
-        raw = par2file[offset+validate_start:offset+self.length]
+        validate_start = 8 + 8 + 16 #  Skip the first 3 fields
+        raw = raw_packet[validate_start:]
         return hashlib.md5(raw).digest() == self.hash
 
 class UnknownPar2Packet(object):
@@ -130,29 +132,30 @@ class Par2File(object):
     def __init__(self, obj_or_path):
         """A convenient object that reads and makes sense of Par2 blocks."""
         self.path = None
+        self.main_packet = None
         if isinstance(obj_or_path, basestring):
-            with open(obj_or_path) as f:
-                self.contents = f.read()
-                self.path = obj_or_path
+            self.path = obj_or_path
+            with open(obj_or_path) as fle:
+                self.packets = self.read_packets(fle)
         else:
-            self.contents = obj_or_path.read()
             if getattr(obj_or_path, 'name', None):
                 self.path = obj_or_path.name
-        self.main_packet = None
-        self.packets = self.read_packets()
+            self.packets = self.read_packets(obj_or_path)
 
-    def read_packets(self):
-        offset = 0
-        filelen = len(self.contents)
+    def read_packets(self, fle):
         packets = []
-        while offset < filelen:
-            raw_header = self.contents[offset:offset+Header.size]
+        while True:
+            raw_header = fle.read(Header.size)
+            if not raw_header:
+                break #  catch EOF
             header = Header(raw_header)
-            if not header.verify(self.contents, offset):
-                # If the packet was invalid, we cant trust the length
-                # So we need to abort with what we had.
+            if not header.verify():
                 break
-            raw_body = self.contents[offset+Header.size:offset+header.length]
+            raw_body = fle.read(header.body_length)
+            if not header.verify_packet(raw_header + raw_body):
+                # If the packet was invalid, we cant trust the length to skip
+                # to the next packet, so abort with what we have already.
+                break
             if header.type == MainPacket.header_type:
                 self.main_packet = MainPacket(header, raw_body)
                 packets.append(self.main_packet)
@@ -162,7 +165,6 @@ class Par2File(object):
                 packets.append(InputFileSliceChecksumPacket(header, raw_body))
             else:
                 packets.append(UnknownPar2Packet(header, raw_body))
-            offset += header.length
         return packets
 
     def filenames(self):
