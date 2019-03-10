@@ -68,8 +68,8 @@ class Par2File(object):
     def __init__(self, obj_or_path):
         """A convenient object that reads and makes sense of Par2 blocks."""
         self.path = None
-        if isinstance(obj_or_path, basestring):
-            with open(obj_or_path) as f:
+        if isinstance(obj_or_path, str):
+            with open(obj_or_path, "rb") as f:
                 self.contents = f.read()
                 self.path = obj_or_path
         else:
