@@ -39,7 +39,7 @@ class Header(object):
         self.type = parts[4]
 
     def verify(self):
-        return self.magic == 'PAR2\x00PKT'
+        return self.magic == b'PAR2\x00PKT'
 
 class UnknownPar2Packet(object):
     fmt = PACKET_HEADER
@@ -48,7 +48,7 @@ class UnknownPar2Packet(object):
         self.header = Header(self.raw)
 
 class FileDescriptionPacket(object):
-    header_type = 'PAR 2.0\x00FileDesc'
+    header_type = b'PAR 2.0\x00FileDesc'
     fmt = FILE_DESCRIPTION_PACKET
 
     def __init__(self, par2file, offset=0):
@@ -61,7 +61,7 @@ class FileDescriptionPacket(object):
         self.file_hashfull = parts[2]
         self.file_hash16k = parts[3]
         self.file_length = parts[4]
-        self.name = packet[struct.calcsize(self.fmt):].strip('\x00')
+        self.name = packet[struct.calcsize(self.fmt):].strip(b'\x00')
 
 
 class Par2File(object):
