@@ -93,7 +93,7 @@ class Par2File(object):
 
     def filenames(self):
         """Returns the filenames that this par2 file repairs."""
-        return [p.name for p in self.packets if isinstance(p, FileDescriptionPacket)]
+        return [p.name.decode() for p in self.packets if isinstance(p, FileDescriptionPacket)]
 
     def related_pars(self):
         """Returns a list of related par2 files (ones par2 will try to read
