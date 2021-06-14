@@ -39,7 +39,7 @@ class Header(object):
         self.type = parts[4]
 
     def verify(self):
-        return self.magic == 'PAR2\x00PKT'
+        return self.magic == b'PAR2\x00PKT'
 
 class UnknownPar2Packet(object):
     fmt = PACKET_HEADER
@@ -48,7 +48,7 @@ class UnknownPar2Packet(object):
         self.header = Header(self.raw)
 
 class FileDescriptionPacket(object):
-    header_type = 'PAR 2.0\x00FileDesc'
+    header_type = b'PAR 2.0\x00FileDesc'
     fmt = FILE_DESCRIPTION_PACKET
 
     def __init__(self, par2file, offset=0):
@@ -61,15 +61,15 @@ class FileDescriptionPacket(object):
         self.file_hashfull = parts[2]
         self.file_hash16k = parts[3]
         self.file_length = parts[4]
-        self.name = packet[struct.calcsize(self.fmt):].strip('\x00')
+        self.name = packet[struct.calcsize(self.fmt):].strip(b'\x00')
 
 
 class Par2File(object):
     def __init__(self, obj_or_path):
         """A convenient object that reads and makes sense of Par2 blocks."""
         self.path = None
-        if isinstance(obj_or_path, basestring):
-            with open(obj_or_path) as f:
+        if isinstance(obj_or_path, str):
+            with open(obj_or_path, "rb") as f:
                 self.contents = f.read()
                 self.path = obj_or_path
         else:
@@ -93,7 +93,7 @@ class Par2File(object):
 
     def filenames(self):
         """Returns the filenames that this par2 file repairs."""
-        return [p.name for p in self.packets if isinstance(p, FileDescriptionPacket)]
+        return [p.name.decode() for p in self.packets if isinstance(p, FileDescriptionPacket)]
 
     def related_pars(self):
         """Returns a list of related par2 files (ones par2 will try to read

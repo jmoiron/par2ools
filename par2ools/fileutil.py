@@ -18,7 +18,7 @@ signatures = {
 lscolors = filter(None, os.environ.get('LS_COLORS', '').split(':'))
 dircolormap = dict([x.split('=') for x in lscolors])
 colorremap = {}
-for k,v in dircolormap.iteritems():
+for k,v in dircolormap.items():
     if '*' not in k: continue
     colorremap.setdefault(v, []).append(fnmatch.translate(k))
 for k,v in colorremap.items():
